@@ -696,14 +696,28 @@ webUrl: ${metadata.webUrl}
 	}
 
 	async ensureFolder(path: string) {
-		const folders = path.split('/');
+		// Handle empty path (vault root)
+		if (!path || path.trim() === '') {
+			return;
+		}
+
+		const folders = path.split('/').filter(f => f.trim() !== '');
 		let currentPath = '';
 
 		for (const folder of folders) {
 			currentPath = currentPath ? `${currentPath}/${folder}` : folder;
 			const existing = this.app.vault.getAbstractFileByPath(currentPath);
+
 			if (!existing) {
+				// Doesn't exist, create it
 				await this.app.vault.createFolder(currentPath);
+			} else if (existing instanceof TFolder) {
+				// Already exists as a folder, skip
+				continue;
+			} else if (existing instanceof TFile) {
+				// Exists as a file, conflict!
+				console.error(`Cannot create folder "${currentPath}" - a file with that name already exists`);
+				throw new Error(`Cannot create folder "${currentPath}" - a file with that name already exists`);
 			}
 		}
 	}
