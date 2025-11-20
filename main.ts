@@ -704,6 +704,17 @@ class ConfluenceAPI {
 		return 'Basic ' + btoa(`${this.email}:${this.apiToken}`);
 	}
 
+	private formatDateForCQL(isoDate: string): string {
+		// Convert ISO 8601 to CQL date format: "yyyy-MM-dd HH:mm"
+		const date = new Date(isoDate);
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		const hours = String(date.getHours()).padStart(2, '0');
+		const minutes = String(date.getMinutes()).padStart(2, '0');
+		return `${year}-${month}-${day} ${hours}:${minutes}`;
+	}
+
 	async getSpace(spaceKey: string) {
 		const response = await requestUrl({
 			url: `${this.baseUrl}/wiki/rest/api/space/${spaceKey}`,
@@ -759,7 +770,9 @@ class ConfluenceAPI {
 			: 'version,space,ancestors';
 
 		// CQL query: get pages modified since last sync
-		const cql = `space = "${spaceKey}" AND type = page AND lastModified >= "${since}"`;
+		// Convert ISO timestamp to CQL-compatible format
+		const cqlDate = this.formatDateForCQL(since);
+		const cql = `space = "${spaceKey}" AND type = page AND lastModified >= "${cqlDate}"`;
 
 		while (true) {
 			const response = await requestUrl({
