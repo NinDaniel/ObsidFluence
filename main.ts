@@ -207,6 +207,7 @@ export default class ConfluenceSyncPlugin extends Plugin {
 				contentPath = `${pagePath}/index.md`;
 			} else {
 				// Leaf page: create as regular file
+				pagePath = parentPath;
 				contentPath = `${parentPath}/${this.sanitizeFileName(page.title)}.md`;
 			}
 
@@ -475,7 +476,7 @@ webUrl: ${metadata.webUrl}
 		content = content.replace(/__EXPAND_START__([^_]+)__EXPAND_MID__([\s\S]*?)__EXPAND_END__/g, (match, title, body) => {
 			// Use Obsidian's collapsible callout syntax (the - makes it collapsed by default)
 			// Prefix each line of the body with "> " to make it part of the callout
-			const bodyLines = body.trim().split('\n').map(line => '> ' + line).join('\n');
+			const bodyLines = body.trim().split('\n').map((line: string) => '> ' + line).join('\n');
 			return `\n\n> [!info]- ${title}\n${bodyLines}\n\n`;
 		});
 
@@ -848,7 +849,7 @@ class ConfluenceSyncSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', {text: 'Confluence Sync Settings'});
+		containerEl.createEl('h2', {text: 'ObsidFluence Settings'});
 
 		new Setting(containerEl)
 			.setName('Confluence URL')

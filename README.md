@@ -23,7 +23,7 @@ Sync Confluence Cloud pages to Obsidian with proper folder structure and formatt
 ### From Release (Recommended)
 
 1. Download the latest release from the [Releases page](https://github.com/NinDaniel/ObsidFluence/releases)
-2. Extract the files into your vault's `.obsidian/plugins/confluence-sync/` folder
+2. Extract the files into your vault's `.obsidian/plugins/obsidfluence/` folder
 3. Reload Obsidian
 4. Enable the plugin in Settings → Community Plugins
 
@@ -32,14 +32,14 @@ Sync Confluence Cloud pages to Obsidian with proper folder structure and formatt
 1. Clone this repository
 2. Run `npm install` to install dependencies
 3. Run `npm run build` to build the plugin
-4. Copy `main.js` and `manifest.json` to your vault's `.obsidian/plugins/confluence-sync/` folder
+4. Copy `main.js` and `manifest.json` to your vault's `.obsidian/plugins/obsidfluence/` folder
 5. Reload Obsidian
 6. Enable the plugin in Settings → Community Plugins
 
 ## Configuration
 
 1. Open Obsidian Settings
-2. Navigate to Community Plugins → Confluence Sync
+2. Navigate to Community Plugins → ObsidFluence
 3. Configure the following settings:
 
 ### Required Settings

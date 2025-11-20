@@ -1,6 +1,6 @@
 {
-	"id": "confluence-sync",
-	"name": "Confluence Sync",
+	"id": "obsidfluence",
+	"name": "ObsidFluence",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Sync Confluence Cloud pages to Obsidian with proper folder structure preservation",
