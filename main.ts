@@ -173,7 +173,12 @@ export default class ConfluenceSyncPlugin extends Plugin {
 
 		// Get space info
 		const space = await api.getSpace(spaceKey);
-		const spaceFolderPath = `${this.settings.syncFolder}/${this.sanitizeFileName(space.name)}`;
+
+		// Build space folder path, handling empty syncFolder (vault root)
+		const syncFolder = this.settings.syncFolder.trim();
+		const spaceFolderPath = syncFolder
+			? `${syncFolder}/${this.sanitizeFileName(space.name)}`
+			: this.sanitizeFileName(space.name);
 		await this.ensureFolder(spaceFolderPath);
 
 		const syncStartTime = new Date().toISOString();
@@ -1022,9 +1027,9 @@ class ConfluenceSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Sync Folder')
-			.setDesc('Folder in your vault where Confluence content will be synced')
+			.setDesc('Folder in your vault where Confluence content will be synced (leave empty to sync to vault root)')
 			.addText(text => text
-				.setPlaceholder('Confluence')
+				.setPlaceholder('Confluence (or leave empty for root)')
 				.setValue(this.plugin.settings.syncFolder)
 				.onChange(async (value) => {
 					this.plugin.settings.syncFolder = value;

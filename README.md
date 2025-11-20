@@ -51,7 +51,7 @@ Sync Confluence Cloud pages to Obsidian with proper folder structure and formatt
 
 ### Optional Settings
 
-- **Sync Folder**: Folder in your vault for Confluence content (default: `Confluence`)
+- **Sync Folder**: Folder in your vault for Confluence content (default: `Confluence`, leave empty to sync to vault root)
 - **Sync Interval**: Auto-sync frequency in minutes (0 to disable)
 - **Conflict Resolution**: How to handle version conflicts
   - `Ask me`: Prompt for each conflict (default)
