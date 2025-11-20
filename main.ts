@@ -193,11 +193,17 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			console.log(`Found ${pages.length} total pages`);
 		}
 
-		// Build hierarchy map: pageId -> children pages
-		const hierarchyMap = new Map<string, ConfluencePage[]>();
+		// Build page lookup map: pageId -> page (for quick access to page details)
+		const pageMap = new Map<string, ConfluencePage>();
+		for (const page of pages) {
+			pageMap.set(page.id, page);
+		}
+
+		// Build hierarchy map: pageId -> children page IDs
+		const hierarchyMap = new Map<string, string[]>();
 		for (const page of pages) {
 			if (page.children?.page?.results) {
-				hierarchyMap.set(page.id, page.children.page.results);
+				hierarchyMap.set(page.id, page.children.page.results.map(child => child.id));
 			} else {
 				hierarchyMap.set(page.id, []);
 			}
@@ -209,7 +215,7 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		// Sync each root page and its children recursively
 		console.log(`Found ${rootPages.length} root pages in space ${spaceKey}`);
 		for (const page of rootPages) {
-			await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap);
+			await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap, pageMap);
 		}
 
 		// Save last sync time
@@ -218,15 +224,27 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		console.log(`Updated last sync time for ${spaceKey} to ${syncStartTime}`);
 	}
 
-	async syncPage(api: ConfluenceAPI, page: ConfluencePage, parentPath: string, depth: number = 0, hierarchyMap?: Map<string, ConfluencePage[]>) {
+	async syncPage(api: ConfluenceAPI, page: ConfluencePage, parentPath: string, depth: number = 0, hierarchyMap?: Map<string, string[]>, pageMap?: Map<string, ConfluencePage>) {
 		const indent = '  '.repeat(depth);
 		console.log(`${indent}Syncing page: ${page.title} (depth: ${depth})`);
 
 		try {
-			// Get children from hierarchy map or API call (fallback for old code paths)
-			let children: ConfluencePage[];
-			if (hierarchyMap && hierarchyMap.has(page.id)) {
-				children = hierarchyMap.get(page.id) || [];
+			// Ensure page has version info - fetch if missing (shouldn't happen with pageMap)
+			if (!page.version) {
+				console.log(`${indent}  ! Page missing version info, fetching...`);
+				page = await api.getPageContent(page.id);
+			}
+
+			// Get children from hierarchy map and lookup their details from pageMap
+			let children: ConfluencePage[] = [];
+			if (hierarchyMap && hierarchyMap.has(page.id) && pageMap) {
+				const childIds = hierarchyMap.get(page.id) || [];
+				// Look up full page details for each child
+				children = childIds.map(id => pageMap.get(id)).filter((p): p is ConfluencePage => p !== undefined);
+			} else if (hierarchyMap && hierarchyMap.has(page.id)) {
+				// Fallback: if we have hierarchy but no pageMap (shouldn't happen)
+				console.log(`${indent}  ! No pageMap, fetching children via API`);
+				children = await api.getPageChildren(page.id);
 			} else {
 				// Fallback to API call if no hierarchy map provided
 				children = await api.getPageChildren(page.id);
@@ -303,7 +321,7 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			if (hasChildren) {
 				console.log(`${indent}  → Syncing ${children.length} children...`);
 				for (const child of children) {
-					await this.syncPage(api, child, pagePath, depth + 1, hierarchyMap);
+					await this.syncPage(api, child, pagePath, depth + 1, hierarchyMap, pageMap);
 				}
 			}
 		} catch (error) {
