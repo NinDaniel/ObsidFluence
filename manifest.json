@@ -1,0 +1,10 @@
+{
+	"id": "confluence-sync",
+	"name": "Confluence Sync",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Sync Confluence Cloud pages to Obsidian with proper folder structure preservation",
+	"author": "Your Name",
+	"authorUrl": "https://github.com/yourusername",
+	"isDesktopOnly": false
+}
