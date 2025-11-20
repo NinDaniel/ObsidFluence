@@ -9,6 +9,7 @@ interface ConfluenceSyncSettings {
 	conflictResolution: 'confluence' | 'obsidian' | 'ask';
 	syncFolder: string;
 	downloadAttachments: boolean;
+	lastSyncTimes: Record<string, string>; // spaceKey -> ISO timestamp
 }
 
 const DEFAULT_SETTINGS: ConfluenceSyncSettings = {
@@ -19,7 +20,8 @@ const DEFAULT_SETTINGS: ConfluenceSyncSettings = {
 	syncIntervalMinutes: 60,
 	conflictResolution: 'ask',
 	syncFolder: 'Confluence',
-	downloadAttachments: true
+	downloadAttachments: true,
+	lastSyncTimes: {}
 };
 
 interface ConfluencePage {
@@ -174,8 +176,32 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		const spaceFolderPath = `${this.settings.syncFolder}/${this.sanitizeFileName(space.name)}`;
 		await this.ensureFolder(spaceFolderPath);
 
-		// Get all pages in space (top-level only, we'll get children recursively)
-		const pages = await api.getSpacePages(spaceKey);
+		const syncStartTime = new Date().toISOString();
+		const lastSyncTime = this.settings.lastSyncTimes[spaceKey];
+
+		let pages: ConfluencePage[];
+
+		if (lastSyncTime) {
+			// Incremental sync: only get pages modified since last sync
+			console.log(`Incremental sync: fetching pages modified since ${lastSyncTime}`);
+			pages = await api.searchPagesByDate(spaceKey, lastSyncTime, true);
+			console.log(`Found ${pages.length} updated pages`);
+		} else {
+			// First sync: get all pages with children info
+			console.log(`First sync: fetching all pages in space`);
+			pages = await api.getSpacePages(spaceKey, true);
+			console.log(`Found ${pages.length} total pages`);
+		}
+
+		// Build hierarchy map: pageId -> children pages
+		const hierarchyMap = new Map<string, ConfluencePage[]>();
+		for (const page of pages) {
+			if (page.children?.page?.results) {
+				hierarchyMap.set(page.id, page.children.page.results);
+			} else {
+				hierarchyMap.set(page.id, []);
+			}
+		}
 
 		// Filter to only root pages (no ancestors)
 		const rootPages = pages.filter(p => !p.ancestors || p.ancestors.length === 0);
@@ -183,17 +209,28 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		// Sync each root page and its children recursively
 		console.log(`Found ${rootPages.length} root pages in space ${spaceKey}`);
 		for (const page of rootPages) {
-			await this.syncPage(api, page, spaceFolderPath, 0);
+			await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap);
 		}
+
+		// Save last sync time
+		this.settings.lastSyncTimes[spaceKey] = syncStartTime;
+		await this.saveSettings();
+		console.log(`Updated last sync time for ${spaceKey} to ${syncStartTime}`);
 	}
 
-	async syncPage(api: ConfluenceAPI, page: ConfluencePage, parentPath: string, depth: number = 0) {
+	async syncPage(api: ConfluenceAPI, page: ConfluencePage, parentPath: string, depth: number = 0, hierarchyMap?: Map<string, ConfluencePage[]>) {
 		const indent = '  '.repeat(depth);
 		console.log(`${indent}Syncing page: ${page.title} (depth: ${depth})`);
 
 		try {
-			// Get children first (lightweight check)
-			const children = await api.getPageChildren(page.id);
+			// Get children from hierarchy map or API call (fallback for old code paths)
+			let children: ConfluencePage[];
+			if (hierarchyMap && hierarchyMap.has(page.id)) {
+				children = hierarchyMap.get(page.id) || [];
+			} else {
+				// Fallback to API call if no hierarchy map provided
+				children = await api.getPageChildren(page.id);
+			}
 			const hasChildren = children.length > 0;
 			console.log(`${indent}  → Has ${children.length} children`);
 
@@ -266,7 +303,7 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			if (hasChildren) {
 				console.log(`${indent}  → Syncing ${children.length} children...`);
 				for (const child of children) {
-					await this.syncPage(api, child, pagePath, depth + 1);
+					await this.syncPage(api, child, pagePath, depth + 1, hierarchyMap);
 				}
 			}
 		} catch (error) {
@@ -661,14 +698,54 @@ class ConfluenceAPI {
 		return response.json;
 	}
 
-	async getSpacePages(spaceKey: string): Promise<ConfluencePage[]> {
+	async getSpacePages(spaceKey: string, includeChildren: boolean = false): Promise<ConfluencePage[]> {
 		const pages: ConfluencePage[] = [];
 		let start = 0;
 		const limit = 100;
 
+		// Include children.page in expand to reduce API calls
+		const expand = includeChildren
+			? 'version,space,ancestors,children.page'
+			: 'version,space,ancestors';
+
 		while (true) {
 			const response = await requestUrl({
-				url: `${this.baseUrl}/wiki/rest/api/space/${spaceKey}/content/page?limit=${limit}&start=${start}&expand=version,space,ancestors`,
+				url: `${this.baseUrl}/wiki/rest/api/space/${spaceKey}/content/page?limit=${limit}&start=${start}&expand=${expand}`,
+				method: 'GET',
+				headers: {
+					'Authorization': this.getAuthHeader(),
+					'Accept': 'application/json'
+				}
+			});
+
+			const data = response.json;
+			pages.push(...data.results);
+
+			if (data.results.length < limit) {
+				break;
+			}
+			start += limit;
+		}
+
+		return pages;
+	}
+
+	async searchPagesByDate(spaceKey: string, since: string, includeChildren: boolean = false): Promise<ConfluencePage[]> {
+		const pages: ConfluencePage[] = [];
+		let start = 0;
+		const limit = 100;
+
+		// Include children.page in expand to reduce API calls
+		const expand = includeChildren
+			? 'version,space,ancestors,children.page'
+			: 'version,space,ancestors';
+
+		// CQL query: get pages modified since last sync
+		const cql = `space = "${spaceKey}" AND type = page AND lastModified >= "${since}"`;
+
+		while (true) {
+			const response = await requestUrl({
+				url: `${this.baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=${limit}&start=${start}&expand=${expand}`,
 				method: 'GET',
 				headers: {
 					'Authorization': this.getAuthHeader(),
