@@ -66,6 +66,13 @@ Sync Confluence Cloud pages to Obsidian with proper folder structure and formatt
 - Click the sync icon in the ribbon, or
 - Use the command palette: `Ctrl/Cmd + P` → "Sync now"
 
+### Force Full Sync
+
+If you need to re-sync all pages (e.g., after deleting local files):
+- Use the command palette: `Ctrl/Cmd + P` → "Force full sync (ignore last sync time)"
+
+This clears the last sync timestamp and fetches all pages from Confluence.
+
 ### Automatic Sync
 
 Set a sync interval in settings to enable automatic syncing.

@@ -87,6 +87,15 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			}
 		});
 
+		// Add force full sync command
+		this.addCommand({
+			id: 'force-full-sync-confluence',
+			name: 'Force full sync (ignore last sync time)',
+			callback: async () => {
+				await this.forceFullSync();
+			}
+		});
+
 		// Add settings tab
 		this.addSettingTab(new ConfluenceSyncSettingTab(this.app, this));
 
@@ -143,6 +152,36 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		try {
 			await this.performSync();
 			new Notice('Confluence sync completed successfully');
+		} catch (error) {
+			console.error('Sync error:', error);
+			new Notice(`Sync failed: ${error.message}`);
+		} finally {
+			this.isSyncing = false;
+		}
+	}
+
+	async forceFullSync() {
+		if (this.isSyncing) {
+			new Notice('Sync already in progress');
+			return;
+		}
+
+		if (!this.settings.confluenceUrl || !this.settings.apiToken) {
+			new Notice('Please configure Confluence settings first');
+			return;
+		}
+
+		// Clear last sync times to force full sync
+		console.log('Forcing full sync - clearing last sync times');
+		this.settings.lastSyncTimes = {};
+		await this.saveSettings();
+
+		this.isSyncing = true;
+		new Notice('Starting full Confluence sync...');
+
+		try {
+			await this.performSync();
+			new Notice('Full Confluence sync completed successfully');
 		} catch (error) {
 			console.error('Sync error:', error);
 			new Notice(`Sync failed: ${error.message}`);
