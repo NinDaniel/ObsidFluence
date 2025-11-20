@@ -209,13 +209,27 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			}
 		}
 
-		// Filter to only root pages (no ancestors)
-		const rootPages = pages.filter(p => !p.ancestors || p.ancestors.length === 0);
-
-		// Sync each root page and its children recursively
-		console.log(`Found ${rootPages.length} root pages in space ${spaceKey}`);
-		for (const page of rootPages) {
-			await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap, pageMap);
+		if (lastSyncTime) {
+			// Incremental sync: process each updated page at its correct location
+			console.log(`Processing ${pages.length} updated pages`);
+			for (const page of pages) {
+				// Reconstruct parent path from ancestors
+				let parentPath = spaceFolderPath;
+				if (page.ancestors && page.ancestors.length > 0) {
+					for (const ancestor of page.ancestors) {
+						parentPath = `${parentPath}/${this.sanitizeFileName(ancestor.title)}`;
+					}
+				}
+				const depth = page.ancestors ? page.ancestors.length : 0;
+				await this.syncPage(api, page, parentPath, depth, hierarchyMap, pageMap);
+			}
+		} else {
+			// First sync: process root pages recursively
+			const rootPages = pages.filter(p => !p.ancestors || p.ancestors.length === 0);
+			console.log(`Found ${rootPages.length} root pages in space ${spaceKey}`);
+			for (const page of rootPages) {
+				await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap, pageMap);
+			}
 		}
 
 		// Save last sync time
