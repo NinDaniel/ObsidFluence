@@ -576,11 +576,37 @@ webUrl: ${metadata.webUrl}
 			return `\n__EXPAND_START__${title}__EXPAND_MID__${body}__EXPAND_END__\n`;
 		});
 
-		// Handle info/warning/note panels
+		// Handle info/warning/note panels - preserve formatting with placeholder
 		content = content.replace(/<ac:structured-macro[^>]*ac:name="(info|warning|note|tip)"[^>]*>([\s\S]*?)<\/ac:structured-macro>/g, (match, type, inner) => {
 			const bodyMatch = inner.match(/<ac:rich-text-body>([\s\S]*?)<\/ac:rich-text-body>/);
 			const body = bodyMatch ? bodyMatch[1] : '';
-			return `> [!${type}]\n> ${body.replace(/<[^>]+>/g, '').replace(/\n/g, '\n> ')}`;
+			// Use placeholder to preserve content and process it later
+			return `\n__CALLOUT_START__${type}__CALLOUT_MID__${body}__CALLOUT_END__\n`;
+		});
+
+		// Handle ADF decision lists (convert to task lists)
+		content = content.replace(/<ac:adf-extension>([\s\S]*?)<\/ac:adf-extension>/g, (match, inner) => {
+			// Check if it's a decision list
+			if (inner.includes('type="decision-list"')) {
+				// Extract decision items
+				const items: string[] = [];
+				const itemRegex = /<ac:adf-node type="decision-item">[\s\S]*?<ac:adf-attribute key="state">([^<]+)<\/ac:adf-attribute>[\s\S]*?<ac:adf-content>([^<]+)<\/ac:adf-content>[\s\S]*?<\/ac:adf-node>/g;
+				let itemMatch;
+				while ((itemMatch = itemRegex.exec(inner)) !== null) {
+					const state = itemMatch[1];
+					const content = itemMatch[2];
+					const checkbox = state === 'DECIDED' ? '[x]' : '[ ]';
+					items.push(`- ${checkbox} ${content}`);
+				}
+				return items.length > 0 ? '\n' + items.join('\n') + '\n' : '';
+			}
+			return match;
+		});
+
+		// Handle decision list fallback (plain HTML)
+		content = content.replace(/<ul class="decision-list">([\s\S]*?)<\/ul>/g, (match, inner) => {
+			// Convert to task list items
+			return inner.replace(/<li>(.*?)<\/li>/gs, '- [ ] $1\n');
 		});
 
 		// Handle Confluence images
@@ -683,6 +709,13 @@ webUrl: ${metadata.webUrl}
 
 		// Decode HTML entities AFTER removing tags
 		content = this.decodeHtmlEntities(content);
+
+		// Convert callout markers back to Obsidian callout syntax AFTER all processing
+		content = content.replace(/__CALLOUT_START__([^_]+)__CALLOUT_MID__([\s\S]*?)__CALLOUT_END__/g, (match, type, body) => {
+			// Process body content (now it has markdown formatting)
+			const bodyLines = body.trim().split('\n').map((line: string) => '> ' + line).join('\n');
+			return `\n\n> [!${type}]\n${bodyLines}\n\n`;
+		});
 
 		// Convert expand markers back to Obsidian callout syntax AFTER all processing
 		content = content.replace(/__EXPAND_START__([^_]+)__EXPAND_MID__([\s\S]*?)__EXPAND_END__/g, (match, title, body) => {

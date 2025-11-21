@@ -173,7 +173,8 @@ npm run build
 - ✅ Blockquotes
 - ✅ Horizontal rules
 - ✅ Expand macros (collapsible sections)
-- ✅ Info/warning/note/tip panels
+- ✅ Info/warning/note/tip panels (with formatting preserved)
+- ✅ Decision lists (ADF) → Task lists with checkboxes
 
 ## Known Limitations
 
