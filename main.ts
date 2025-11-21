@@ -553,6 +553,23 @@ webUrl: ${metadata.webUrl}
 ---`;
 	}
 
+	convertLists(content: string): string {
+		// Convert unordered lists
+		content = content.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gs, (match, listContent) => {
+			return listContent.replace(/<li[^>]*>(.*?)<\/li>/gs, '- $1\n') + '\n';
+		});
+
+		// Convert ordered lists
+		content = content.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gs, (match, listContent) => {
+			let counter = 1;
+			return listContent.replace(/<li[^>]*>(.*?)<\/li>/gs, (match: string, itemContent: string) => {
+				return `${counter++}. ${itemContent}\n`;
+			}) + '\n';
+		});
+
+		return content;
+	}
+
 	convertToMarkdown(page: ConfluencePage, contentPath: string, attachmentsFolder: string): string {
 		let content = page.body?.storage?.value || '';
 
@@ -577,7 +594,11 @@ webUrl: ${metadata.webUrl}
 		});
 
 		// Handle info/warning/note panels - preserve formatting with placeholder
-		content = content.replace(/<ac:structured-macro[^>]*ac:name="(info|warning|note|tip)"[^>]*>([\s\S]*?)<\/ac:structured-macro>/g, (match, type, inner) => {
+		content = content.replace(/<ac:structured-macro[^>]*ac:name="(info|warning|note|tip)"[^>]*>([\s\S]*?)<\/ac:structured-macro>/g, (match, macroType, inner) => {
+			// Check if there's a 'type' parameter that overrides the macro name
+			const typeParamMatch = inner.match(/<ac:parameter ac:name="type">([^<]+)<\/ac:parameter>/);
+			const type = typeParamMatch ? typeParamMatch[1].toLowerCase() : macroType;
+
 			const bodyMatch = inner.match(/<ac:rich-text-body>([\s\S]*?)<\/ac:rich-text-body>/);
 			const body = bodyMatch ? bodyMatch[1] : '';
 			// Use placeholder to preserve content and process it later
@@ -588,15 +609,23 @@ webUrl: ${metadata.webUrl}
 		content = content.replace(/<ac:adf-extension>([\s\S]*?)<\/ac:adf-extension>/g, (match, inner) => {
 			// Check if it's a decision list
 			if (inner.includes('type="decision-list"')) {
-				// Extract decision items
+				// Extract decision items - improved regex to handle content properly
 				const items: string[] = [];
-				const itemRegex = /<ac:adf-node type="decision-item">[\s\S]*?<ac:adf-attribute key="state">([^<]+)<\/ac:adf-attribute>[\s\S]*?<ac:adf-content>([^<]+)<\/ac:adf-content>[\s\S]*?<\/ac:adf-node>/g;
+				const itemRegex = /<ac:adf-node type="decision-item">([\s\S]*?)<\/ac:adf-node>/g;
 				let itemMatch;
 				while ((itemMatch = itemRegex.exec(inner)) !== null) {
-					const state = itemMatch[1];
-					const content = itemMatch[2];
-					const checkbox = state === 'DECIDED' ? '[x]' : '[ ]';
-					items.push(`- ${checkbox} ${content}`);
+					const itemContent = itemMatch[1];
+					// Extract state
+					const stateMatch = itemContent.match(/<ac:adf-attribute key="state">([^<]+)<\/ac:adf-attribute>/);
+					const state = stateMatch ? stateMatch[1] : '';
+					// Extract content text
+					const textMatch = itemContent.match(/<ac:adf-content>(.*?)<\/ac:adf-content>/);
+					const text = textMatch ? textMatch[1] : '';
+
+					if (text) {
+						const checkbox = state === 'DECIDED' ? '[x]' : '[ ]';
+						items.push(`- ${checkbox} ${text}`);
+					}
 				}
 				return items.length > 0 ? '\n' + items.join('\n') + '\n' : '';
 			}
@@ -650,6 +679,9 @@ webUrl: ${metadata.webUrl}
 		// Handle tables - convert to Markdown
 		content = this.convertTables(content);
 
+		// Convert lists (handles nesting with proper indentation)
+		content = this.convertLists(content);
+
 		// Convert standard HTML to Markdown
 		content = content
 			// Headers
@@ -678,17 +710,6 @@ webUrl: ${metadata.webUrl}
 			// Blockquotes
 			.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gs, (match, content) => {
 				return '> ' + content.trim().replace(/\n/g, '\n> ') + '\n\n';
-			})
-			// Lists - unordered
-			.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gs, (match, content) => {
-				return content.replace(/<li[^>]*>(.*?)<\/li>/gs, '- $1\n') + '\n';
-			})
-			// Lists - ordered
-			.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gs, (match, content) => {
-				let counter = 1;
-				return content.replace(/<li[^>]*>(.*?)<\/li>/gs, () => {
-					return `${counter++}. ${RegExp.$1}\n`;
-				}) + '\n';
 			})
 			// Paragraphs
 			.replace(/<p[^>]*>(.*?)<\/p>/gs, '$1\n\n')
