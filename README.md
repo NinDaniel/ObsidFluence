@@ -58,6 +58,7 @@ Sync Confluence Cloud pages to Obsidian with proper folder structure and formatt
   - `Always use Confluence version`: Confluence always wins
   - `Always use Obsidian version`: Keep local changes
 - **Download Attachments**: Enable/disable attachment downloading
+- **Flatten Single Root Page**: When enabled, if a space has only one root page, skip its folder and sync content directly to the space folder (reduces nesting depth)
 
 ## Usage
 
@@ -79,6 +80,8 @@ Set a sync interval in settings to enable automatic syncing.
 
 ## Folder Structure Example
 
+### Normal Structure
+
 ```
 Confluence/
 └── Space Name/
@@ -92,6 +95,24 @@ Confluence/
     │       └── Grandchild Page.md
     └── Another Root Page.md
 ```
+
+### Flattened Single Root Page (Setting Enabled)
+
+When a space has only one root page and "Flatten Single Root Page" is enabled:
+
+```
+Confluence/
+└── Space Name/
+    ├── index.md              ← Root page content
+    ├── attachments/
+    │   └── diagram.png
+    ├── Child Page 1.md        ← Direct children (no extra folder)
+    └── Child Page 2/
+        ├── index.md
+        └── Grandchild Page.md
+```
+
+This reduces one level of nesting for spaces with a single root page.
 
 ## Page Metadata
 

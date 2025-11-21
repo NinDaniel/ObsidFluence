@@ -10,6 +10,7 @@ interface ConfluenceSyncSettings {
 	syncFolder: string;
 	downloadAttachments: boolean;
 	lastSyncTimes: Record<string, string>; // spaceKey -> ISO timestamp
+	flattenSingleRootPage: boolean;
 }
 
 const DEFAULT_SETTINGS: ConfluenceSyncSettings = {
@@ -21,7 +22,8 @@ const DEFAULT_SETTINGS: ConfluenceSyncSettings = {
 	conflictResolution: 'ask',
 	syncFolder: 'Confluence',
 	downloadAttachments: true,
-	lastSyncTimes: {}
+	lastSyncTimes: {},
+	flattenSingleRootPage: false
 };
 
 interface ConfluencePage {
@@ -271,8 +273,20 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			// First sync: process root pages recursively
 			const rootPages = pages.filter(p => !p.ancestors || p.ancestors.length === 0);
 			console.log(`Found ${rootPages.length} root pages in space ${spaceKey}`);
-			for (const page of rootPages) {
-				await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap, pageMap);
+
+			// Check if we should flatten single root page
+			if (this.settings.flattenSingleRootPage && rootPages.length === 1) {
+				const rootPage = rootPages[0];
+				console.log(`Flattening single root page: ${rootPage.title}`);
+
+				// Sync root page directly to space folder (no subfolder for the root page itself)
+				// This will create index.md at the space level and put children there
+				await this.syncPageFlattened(api, rootPage, spaceFolderPath, hierarchyMap, pageMap);
+			} else {
+				// Normal behavior: create folder for each root page
+				for (const page of rootPages) {
+					await this.syncPage(api, page, spaceFolderPath, 0, hierarchyMap, pageMap);
+				}
 			}
 		}
 
@@ -384,6 +398,91 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			}
 		} catch (error) {
 			console.error(`${indent}Error syncing page "${page.title}":`, error);
+			throw error;
+		}
+	}
+
+	async syncPageFlattened(api: ConfluenceAPI, page: ConfluencePage, folderPath: string, hierarchyMap?: Map<string, string[]>, pageMap?: Map<string, ConfluencePage>) {
+		console.log(`Syncing flattened root page: ${page.title}`);
+
+		try {
+			// Ensure page has version info
+			if (!page.version) {
+				console.log(`  ! Page missing version info, fetching...`);
+				page = await api.getPageContent(page.id);
+			}
+
+			// Get children
+			let children: ConfluencePage[] = [];
+			if (hierarchyMap && hierarchyMap.has(page.id) && pageMap) {
+				const childIds = hierarchyMap.get(page.id) || [];
+				children = childIds.map(id => pageMap.get(id)).filter((p): p is ConfluencePage => p !== undefined);
+			} else {
+				children = await api.getPageChildren(page.id);
+			}
+
+			console.log(`  → Root page has ${children.length} children`);
+
+			// Create index.md for root page content at folder level
+			const indexPath = `${folderPath}/index.md`;
+			const existingIndex = this.app.vault.getAbstractFileByPath(indexPath);
+			let shouldUpdate = true;
+
+			if (existingIndex instanceof TFile) {
+				const existingMetadata = await this.extractMetadataFromFile(existingIndex);
+				if (existingMetadata && existingMetadata.version >= page.version.number) {
+					console.log(`  ↓ Skipping index.md (v${page.version.number}, local is v${existingMetadata.version})`);
+					shouldUpdate = false;
+				} else {
+					console.log(`  ↓ Updating index.md (v${existingMetadata?.version || 0} → v${page.version.number})`);
+				}
+			} else {
+				console.log(`  ↓ Creating index.md`);
+			}
+
+			// Sync root page content to index.md
+			if (shouldUpdate) {
+				const fullPage = await api.getPageContent(page.id);
+
+				// Download attachments to folder/attachments
+				const attachmentsFolder = `${folderPath}/attachments`;
+				if (this.settings.downloadAttachments && fullPage.body?.storage?.value) {
+					await this.downloadAttachments(api, fullPage, attachmentsFolder);
+				}
+
+				// Convert content
+				const markdown = this.convertToMarkdown(fullPage, indexPath, attachmentsFolder);
+
+				// Add frontmatter
+				const metadata: PageMetadata = {
+					confluenceId: page.id,
+					version: page.version.number,
+					lastSynced: new Date().toISOString(),
+					spaceKey: page.space.key,
+					title: page.title,
+					webUrl: `${this.settings.confluenceUrl}${page._links?.webui || ''}`
+				};
+
+				const frontmatter = this.createFrontmatter(metadata);
+				const fullContent = frontmatter + '\n\n' + markdown;
+
+				// Save index.md
+				if (existingIndex instanceof TFile) {
+					await this.app.vault.modify(existingIndex, fullContent);
+				} else {
+					await this.app.vault.create(indexPath, fullContent);
+				}
+			}
+
+			// Sync children directly to this folder (not in a subfolder)
+			if (children.length > 0) {
+				console.log(`  → Syncing ${children.length} children to ${folderPath}`);
+				for (const child of children) {
+					await this.syncPage(api, child, folderPath, 0, hierarchyMap, pageMap);
+				}
+			}
+		} catch (error) {
+			console.error(`Error syncing flattened page "${page.title}":`, error);
 			throw error;
 		}
 	}
@@ -1124,6 +1223,16 @@ class ConfluenceSyncSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.downloadAttachments)
 				.onChange(async (value) => {
 					this.plugin.settings.downloadAttachments = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Flatten Single Root Page')
+			.setDesc('When a space has only one root page, skip its folder and sync content directly to the space folder')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.flattenSingleRootPage)
+				.onChange(async (value) => {
+					this.plugin.settings.flattenSingleRootPage = value;
 					await this.plugin.saveSettings();
 				}));
 	}
