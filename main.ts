@@ -597,7 +597,19 @@ webUrl: ${metadata.webUrl}
 		content = content.replace(/<ac:structured-macro[^>]*ac:name="(info|warning|note|tip)"[^>]*>([\s\S]*?)<\/ac:structured-macro>/g, (match, macroType, inner) => {
 			// Check if there's a 'type' parameter that overrides the macro name
 			const typeParamMatch = inner.match(/<ac:parameter ac:name="type">([^<]+)<\/ac:parameter>/);
-			const type = typeParamMatch ? typeParamMatch[1].toLowerCase() : macroType;
+			let type = typeParamMatch ? typeParamMatch[1].toLowerCase() : macroType;
+
+			// Remap structured-macro types to match Confluence UI behavior:
+			// Confluence's /warning creates ac:name="note" but displays as yellow warning
+			// Confluence's /error creates ac:name="warning" but displays as red error
+			// Confluence's /tip creates ac:name="tip" but displays as green success
+			const structuredMacroMapping: Record<string, string> = {
+				'note': 'warning',   // /warning → ac:name="note" → [!warning]
+				'warning': 'error',  // /error → ac:name="warning" → [!error]
+				'tip': 'success',    // /tip → ac:name="tip" → [!success]
+				'info': 'info'       // /info → ac:name="info" → [!info]
+			};
+			type = structuredMacroMapping[type] || type;
 
 			const bodyMatch = inner.match(/<ac:rich-text-body>([\s\S]*?)<\/ac:rich-text-body>/);
 			const body = bodyMatch ? bodyMatch[1] : '';
@@ -605,8 +617,33 @@ webUrl: ${metadata.webUrl}
 			return `\n__CALLOUT_START__${type}__CALLOUT_MID__${body}__CALLOUT_END__\n`;
 		});
 
-		// Handle ADF decision lists (convert to task lists)
+		// Handle custom panels (user-created with custom colors/icons)
+		// Convert to info callouts since we can't preserve custom styling
+		content = content.replace(/<ac:structured-macro[^>]*ac:name="panel"[^>]*>([\s\S]*?)<\/ac:structured-macro>/g, (match, inner) => {
+			const bodyMatch = inner.match(/<ac:rich-text-body>([\s\S]*?)<\/ac:rich-text-body>/);
+			const body = bodyMatch ? bodyMatch[1] : '';
+			// Default to info callout for custom panels
+			return `\n__CALLOUT_START__info__CALLOUT_MID__${body}__CALLOUT_END__\n`;
+		});
+
+		// Handle ADF extensions (panels and decision lists)
 		content = content.replace(/<ac:adf-extension>([\s\S]*?)<\/ac:adf-extension>/g, (match, inner) => {
+			// Check if it's a panel
+			if (inner.includes('type="panel"')) {
+				// Extract panel type
+				const panelTypeMatch = inner.match(/<ac:adf-attribute key="panel-type">([^<]+)<\/ac:adf-attribute>/);
+				const panelType = panelTypeMatch ? panelTypeMatch[1].toLowerCase() : 'note';
+
+				// Extract content
+				const contentMatch = inner.match(/<ac:adf-content>([\s\S]*?)<\/ac:adf-content>/);
+				const body = contentMatch ? contentMatch[1] : '';
+
+				// ADF panels use the actual UI type names (note, warning, error, info, success)
+				// so no remapping needed - /note creates panel-type="note", etc.
+				// Use placeholder to preserve content and process it later
+				return `\n__CALLOUT_START__${panelType}__CALLOUT_MID__${body}__CALLOUT_END__\n`;
+			}
+
 			// Check if it's a decision list
 			if (inner.includes('type="decision-list"')) {
 				// Extract decision items - improved regex to handle content properly
